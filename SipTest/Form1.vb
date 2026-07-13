@@ -1,24 +1,22 @@
-﻿Imports Net
-Imports System.Net.Http
-Imports System.Net.Security.Cryptography
-Imports System.Text
-
+﻿Imports System.Net.Http
+Imports System.Net
 
 Imports System.Net.WebSockets
 Imports System.Threading
-Imports System.Net
+Imports System.Text
+
+Imports System.Net.Security
+Imports System.Security.Cryptography.X509Certificates
+
 Imports System.IO
 Imports System.Globalization
 'Imports System.Text
 'Imports System.Net.Http
-
-
+'Imports Net
+'Imports System.Net.Security.Cryptography
 
 Public Class Form1
     Dim client As New HttpClient()
-
-
-
     Private webSocket As ClientWebSocket
     Private cts As CancellationTokenSource
 
@@ -63,24 +61,37 @@ Public Class Form1
 
     End Sub
 
+    Private Function AcceptAllCertificates(sender As Object,
+                                       certificate As System.Security.Cryptography.X509Certificates.X509Certificate,
+                                       chain As System.Security.Cryptography.X509Certificates.X509Chain,
+                                       sslPolicyErrors As System.Net.Security.SslPolicyErrors) As Boolean
+        ' Always return True to ignore certificate errors (for testing only)
+        Return True
+    End Function
+
     Private Async Sub btnConnect_Click(sender As Object, e As EventArgs) Handles btnConnect.Click
 
         cts = New CancellationTokenSource()
         webSocket = New ClientWebSocket()
+
+        webSocket.Options.RemoteCertificateValidationCallback = AddressOf AcceptAllCertificates
+
+        Dim username As String = "willTestCam"
+        Dim password As String = "root"
+        webSocket.Options.Credentials = New System.Net.NetworkCredential(username, password)
+
         MessageBox.Show(client.ToString)
-        Dim uriString As String = "wss://192.168.0.208/vapix/" & client.ToString
-        MessageBox.Show(uriString)
-        Dim serverUri As New Uri(uriString)
+        Dim deviceIp As String = "192.168.0.208"
+        Dim serverUri As New Uri($"wss://{deviceIp}/vapix/intercomws")
+
+
 
 
         Try
-
             Await webSocket.ConnectAsync(serverUri, cts.Token)
             lblStatus.Text = "Connected"
 
             Await ListenForMessagesAsync(webSocket, cts.Token)
-
-
 
         Catch webEx As System.Net.WebException
             'Console.WriteLine("Status: " & webEx.Status.ToString())

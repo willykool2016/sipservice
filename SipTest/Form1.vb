@@ -118,8 +118,10 @@ Public Class Form1
         Catch ex As Exception
 
             ' Console.WriteLine("General Error: " & ex.Message)
+            If Not lblStatus.Text.Contains("Disconnected") Then
+                MessageBox.Show("General Error: " & ex.Message)
+            End If
 
-            MessageBox.Show("General Error: " & ex.Message)
         End Try
 
     End Sub

@@ -1,10 +1,12 @@
-﻿Imports System.Net.Http
-Imports System.Net.Http.Headers
+﻿Imports Net
+Imports System.Net.Http
+Imports System.Net.Security.Cryptography
 Imports System.Text
 
 
 Imports System.Net.WebSockets
 Imports System.Threading
+Imports System.Net
 'Imports System.Text
 'Imports System.Net.Http
 
@@ -23,13 +25,21 @@ Public Class Form1
 
 
     Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-        Dim username As String = "willTestCam"
-        Dim password As String = "root"
-        Dim credentials As String = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{username}:{password}"))
-        MessageBox.Show(credentials)
+        'Dim username As String = "willTestCam"
+        'Dim password As String = "root"
+        'Dim credentials As String = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{username}:{password}"))
+        'MessageBox.Show(credentials)
 
-        client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Basic", credentials)
+        'client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Basic", credentials)
+        'MessageBox.Show(client.ToString)
+
+        Dim handler As New HttpClientHandler()
+        handler.Credentials = New NetworkCredential("root", "mypassword")
+
+        Dim client As New HttpClient(handler)
+
         MessageBox.Show(client.ToString)
+
     End Sub
 
     Private Async Sub btnConnect_Click(sender As Object, e As EventArgs) Handles btnConnect.Click
@@ -38,6 +48,7 @@ Public Class Form1
         webSocket = New ClientWebSocket()
         MessageBox.Show(client.ToString)
         Dim uriString As String = "wss://192.168.0.195/vapix/" & client.ToString
+        MessageBox.Show(uriString)
         Dim serverUri As New Uri(uriString)
 
 

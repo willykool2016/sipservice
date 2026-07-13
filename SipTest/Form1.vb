@@ -10,6 +10,8 @@ Imports System.Security.Cryptography.X509Certificates
 
 Imports System.IO
 Imports System.Globalization
+Imports System.Runtime.Serialization
+Imports System.Runtime.CompilerServices
 'Imports System.Text
 'Imports System.Net.Http
 'Imports Net
@@ -83,7 +85,8 @@ Public Class Form1
         MessageBox.Show(client.ToString)
         Dim deviceIp As String = "192.168.0.208"
         Dim serverUri As New Uri($"wss://{deviceIp}/vapix/intercomws")
-
+        Dim willCool As String = "Will is SOOOO COOOOOl :0 :0"
+        MessageBox.Show(willCool)
 
 
 

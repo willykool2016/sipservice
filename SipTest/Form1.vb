@@ -119,8 +119,10 @@ Public Class Form1
         Catch ex As Exception
 
             ' Console.WriteLine("General Error: " & ex.Message)
+            If Not lblStatus.Text.Contains("Disconnected") Then
+                MessageBox.Show("General Error: " & ex.Message)
+            End If
 
-            MessageBox.Show("General Error: " & ex.Message)
         End Try
 
     End Sub
@@ -138,7 +140,7 @@ Public Class Form1
 
                 Await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None)
                 Exit While
-
+                'kejrgndrfkjngrkjgn
             End If
 
             Dim messageString As String = Encoding.UTF8.GetString(buffer, 0, result.Count)
@@ -156,9 +158,16 @@ Public Class Form1
         If webSocket IsNot Nothing AndAlso webSocket.State = WebSocketState.Open Then
 
             cts.Cancel()
-            Await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "User disconnected", CancellationToken.None)
-            lblStatus.Text = "Disconnected"
+            'Await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "User disconnected", CancellationToken.None)
 
+            If webSocket.State = WebSocketState.Open OrElse webSocket.State = WebSocketState.CloseReceived OrElse
+                webSocket.State = WebSocketState.CloseSent Then
+                Await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None)
+            End If
+
+
+            lblStatus.Text = "Disconnected"
+            'MessageBox.Show("ajksnfsnfjdnk")
         End If
 
     End Sub

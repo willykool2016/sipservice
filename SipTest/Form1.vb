@@ -43,7 +43,7 @@ Public Class Form1
             webSocket.Options.RemoteCertificateValidationCallback = AddressOf AcceptAllCertificates
             ' Make sure to put your actual device password here!
             webSocket.Options.Credentials = New System.Net.NetworkCredential("willTestCam", "root")
-            Dim deviceIp As String = "192.168.0.208"
+            Dim deviceIp As String = "192.168.0.113"
             Dim serverUri As New Uri($"wss://{deviceIp}/vapix/intercomws")
             ' Connect!
             Await webSocket.ConnectAsync(serverUri, cts.Token)
@@ -104,7 +104,7 @@ Public Class Form1
             ' ----------------------------------------------
             ' 5. The Intercom's SIP Address
             ' Format: sip:username@ip_address
-            Dim intercomSipUri As String = "sip:192.168.0.208:5060"
+            Dim intercomSipUri As String = "sip:192.168.0.113:5060"
             ' 6. Start the Call!
             ' We pass the SIP URI and the Media Session to handle the audio
             Dim callTask = userAgent.Call(intercomSipUri, Nothing, Nothing, voipMediaSession)
@@ -115,7 +115,6 @@ Public Class Form1
     End Function
 
     'Where the code to make the hang up button and form closing hangup occur
-    'Where the code to make the hang up button occur
     Public Sub HangUp()
         Try
             ' 1. Hang up only the active call, do NOT shut down the sipTransport!
@@ -125,7 +124,7 @@ Public Class Form1
 
             ' --- NEW LINE: Turn off the Intercom Icons ---
             ' Since HangUp is a synchronous Sub, we use _ = to fire-and-forget the async task
-            Call SetIntercomFeedback("statusSpeak", "continuous", "off")
+            Call SetIntercomFeedback("led3", "continuous", "off")
             ' ---------------------------------------------
 
             ' 2. Clean up the audio devices
@@ -198,6 +197,12 @@ Public Class Form1
             ' -------------------------
             ' 2. Create the SIP User Agent (Your Softphone)
             userAgent = New SIPUserAgent(sipTransport, Nothing)
+
+            ' --- NEW: Catch outbound call rejections here! ---
+            AddHandler userAgent.ClientCallFailed, Sub(ua, err, res)
+                                                       MessageBox.Show($"Call Failed! Reason: {err}")
+                                                   End Sub
+
             ' 3. Tell the agent what to do when an incoming call arrives
             AddHandler userAgent.OnIncomingCall, AddressOf Intercom_Ringing
         Catch ex As Exception
@@ -273,7 +278,7 @@ Public Class Form1
 
             ' 2. The Intercom's SIP Address
             ' Since it is a Peer-to-Peer call, just the IP address is usually enough
-            Dim intercomSipUri As String = "sip:192.168.0.208"
+            Dim intercomSipUri As String = "sip:192.168.0.113"
 
             ' 3. Place the call! 
             ' We pass Nothing for username/password because P2P usually doesn't require them.
@@ -287,7 +292,7 @@ Public Class Form1
                 activeCallAgent = userAgent
 
                 ' --- NEW LINE: Turn on the Blue Intercom Icon! ---
-                Call SetIntercomFeedback("statusSpeak", "continuous", "on")
+                Call SetIntercomFeedback("led3", "continuous", "on")
                 ' -------------------------------------------------
             Else
                 lblStatus.Text = "Status: Call Rejected or Timeout"

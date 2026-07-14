@@ -43,7 +43,7 @@ Public Class Form1
             webSocket.Options.RemoteCertificateValidationCallback = AddressOf AcceptAllCertificates
             ' Make sure to put your actual device password here!
             webSocket.Options.Credentials = New System.Net.NetworkCredential("willTestCam", "root")
-            Dim deviceIp As String = "192.168.0.113"
+            Dim deviceIp As String = "192.168.0.208"
             Dim serverUri As New Uri($"wss://{deviceIp}/vapix/intercomws")
             ' Connect!
             Await webSocket.ConnectAsync(serverUri, cts.Token)
@@ -104,7 +104,7 @@ Public Class Form1
             ' ----------------------------------------------
             ' 5. The Intercom's SIP Address
             ' Format: sip:username@ip_address
-            Dim intercomSipUri As String = "sip:192.168.0.113:5060"
+            Dim intercomSipUri As String = "sip:192.168.0.208:5060"
             ' 6. Start the Call!
             ' We pass the SIP URI and the Media Session to handle the audio
             Dim callTask = userAgent.Call(intercomSipUri, Nothing, Nothing, voipMediaSession)
@@ -278,7 +278,7 @@ Public Class Form1
 
             ' 2. The Intercom's SIP Address
             ' Since it is a Peer-to-Peer call, just the IP address is usually enough
-            Dim intercomSipUri As String = "sip:192.168.0.113"
+            Dim intercomSipUri As String = "sip:192.168.0.208"
 
             ' 3. Place the call! 
             ' We pass Nothing for username/password because P2P usually doesn't require them.

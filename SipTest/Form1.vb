@@ -303,4 +303,14 @@ Public Class Form1
         End Try
     End Sub
 #End Region
+
+    'testing changing LED colors
+
+
+
+
+
+
+
+
 End Class

@@ -123,6 +123,11 @@ Public Class Form1
                 activeCallAgent.Hangup()
             End If
 
+            ' --- NEW LINE: Turn off the Intercom Icons ---
+            ' Since HangUp is a synchronous Sub, we use _ = to fire-and-forget the async task
+            Call SetIntercomFeedback("statusSpeak", "continuous", "off")
+            ' ---------------------------------------------
+
             ' 2. Clean up the audio devices
             If windowsAudio IsNot Nothing Then
                 windowsAudio.CloseAudio()
@@ -146,6 +151,38 @@ Public Class Form1
     Private Sub btnHangUp_Click(sender As Object, e As EventArgs) Handles btnHangUp.Click
         HangUp()
     End Sub
+
+    ' Helper Method to directly control the LED icons on the Intercom
+    Private Async Function SetIntercomFeedback(ledName As String, runStyle As String, color As String) As Task
+        If webSocket Is Nothing OrElse webSocket.State <> WebSocketState.Open Then Return
+
+        Try
+            ' We use ledFeedbacks to take manual control of the lights
+            Dim jsonPayload As String = $"{{
+              ""apiVersion"": ""1.0"",
+              ""method"": ""SetUiFeedback"",
+              ""params"": {{
+                ""ledFeedbacks"": [
+                  {{
+                    ""led"": ""{ledName}"",
+                    ""runStyle"": ""{runStyle}"",
+                    ""valueOn"": ""{color}"",
+                    ""valueOff"": ""off""
+                  }}
+                ]
+              }},
+              ""id"": ""clientSetUiFeedback""
+            }}"
+
+            Dim buffer As Byte() = Encoding.UTF8.GetBytes(jsonPayload)
+            Dim segment As New ArraySegment(Of Byte)(buffer)
+
+            Await webSocket.SendAsync(segment, WebSocketMessageType.Text, True, CancellationToken.None)
+
+        Catch ex As Exception
+            Console.WriteLine($"Failed to set UI feedback: {ex.Message}")
+        End Try
+    End Function
 #End Region
 
 #Region "Prepare for Incoming Calls"
@@ -218,8 +255,52 @@ Public Class Form1
 
 #Region "Send Call to Intercom"
     'When pressed, should send a call out to the intercom
-    Private Sub btnMakeCall_Click_1(sender As Object, e As EventArgs) Handles btnMakeCall.Click
-        MessageBox.Show("Hello? Hello hello!")
+    Private Async Sub btnCallIntercom_Click(sender As Object, e As EventArgs) Handles btnCallIntercom.Click
+        ' Safety check: ensure the SIP agent is running
+        If userAgent Is Nothing Then
+            MessageBox.Show("The SIP engine hasn't started yet!")
+            Return
+        End If
+
+        Try
+            btnCallIntercom.Enabled = False
+            lblStatus.Text = "Status: Calling Intercom..."
+            lblStatus.ForeColor = Color.Orange
+
+            ' 1. Set up the Audio endpoints (Mic and Speakers)
+            windowsAudio = New WindowsAudioEndPoint(New SIPSorcery.Media.AudioEncoder())
+            Dim voipMediaSession As New VoIPMediaSession(windowsAudio.ToMediaEndPoints())
+
+            ' 2. The Intercom's SIP Address
+            ' Since it is a Peer-to-Peer call, just the IP address is usually enough
+            Dim intercomSipUri As String = "sip:192.168.0.208"
+
+            ' 3. Place the call! 
+            ' We pass Nothing for username/password because P2P usually doesn't require them.
+            Dim answered As Boolean = Await userAgent.Call(intercomSipUri, Nothing, Nothing, voipMediaSession)
+
+            If answered Then
+                lblStatus.Text = "Status: Call Active! (Outbound)"
+                lblStatus.ForeColor = Color.Green
+
+                ' Keep track of the active call so we can hang it up later
+                activeCallAgent = userAgent
+
+                ' --- NEW LINE: Turn on the Blue Intercom Icon! ---
+                Call SetIntercomFeedback("statusSpeak", "continuous", "on")
+                ' -------------------------------------------------
+            Else
+                lblStatus.Text = "Status: Call Rejected or Timeout"
+                lblStatus.ForeColor = Color.Red
+            End If
+
+        Catch ex As Exception
+            MessageBox.Show($"Error making call: {ex.Message}")
+            lblStatus.Text = "Status: Error Calling"
+            lblStatus.ForeColor = Color.Red
+        Finally
+            btnCallIntercom.Enabled = True
+        End Try
     End Sub
 #End Region
 End Class

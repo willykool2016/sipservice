@@ -1,17 +1,19 @@
-﻿Imports System.Net.Http
-Imports System.Net
-
-Imports System.Net.WebSockets
-Imports System.Threading
-Imports System.Text
-
-Imports System.Net.Security
-Imports System.Security.Cryptography.X509Certificates
-
+﻿Imports System.Globalization
 Imports System.IO
-Imports System.Globalization
-Imports System.Runtime.Serialization
+Imports System.Net
+Imports System.Net.Http
+Imports System.Net.Security
+Imports System.Net.WebSockets
 Imports System.Runtime.CompilerServices
+Imports System.Runtime.Serialization
+Imports System.Security.Cryptography.X509Certificates
+Imports System.Text
+Imports System.Threading
+Imports System.Threading.Tasks
+Imports SIPSorcery.Media
+Imports SIPSorcery.SIP
+Imports SIPSorcery.SIP.App
+Imports SIPSorceryMedia.Windows
 'Imports System.Text
 'Imports System.Net.Http
 'Imports Net
@@ -22,45 +24,43 @@ Public Class Form1
     Private webSocket As ClientWebSocket
     Private cts As CancellationTokenSource
 
+    Private sipTransport As SIPTransport
+    Private userAgent As SIPUserAgent
+    Private windowsAudio As WindowsAudioEndPoint
 
-
-
-
+    Private activeCallAgent As SIPUserAgent
+    Private activeServerAgent As SIPServerUserAgent
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-        'Dim username As String = "willTestCam"
-        'Dim password As String = "root"
-        'Dim credentials As String = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{username}:{password}"))
-        'MessageBox.Show(credentials)
+        ' 1. Start the SIP Server to listen for incoming calls right away
+        StartListening()
 
-        'client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Basic", credentials)
-        'MessageBox.Show(client.ToString)
+        ' 2. Connect the WebSocket to send API commands
+        Try
+            lblStatus.Text = "Status: Connecting..."
 
-        Dim cameraIp As String = "192.168.0.208"
-        Dim handlerUrl As String = $"/axis-cgi/com/ptz.cgi?camera=1&continuouspantiltmove=50,-50"
-        Dim fullUri As String = $"http://{cameraIp}{handlerUrl}"
+            webSocket = New ClientWebSocket()
+            cts = New CancellationTokenSource()
 
+            ' Apply certificate bypass and credentials
+            webSocket.Options.RemoteCertificateValidationCallback = AddressOf AcceptAllCertificates
 
+            ' Make sure to put your actual device password here!
+            webSocket.Options.Credentials = New System.Net.NetworkCredential("willTestCam", "root")
 
-        Dim handler As New HttpClientHandler()
-        handler.Credentials = New NetworkCredential("willTestCam", "root")
+            Dim deviceIp As String = "192.168.0.208"
+            Dim serverUri As New Uri($"wss://{deviceIp}/vapix/intercomws")
 
-        Dim client As New HttpClient(handler)
+            ' Connect!
+            Await webSocket.ConnectAsync(serverUri, cts.Token)
 
+            lblStatus.Text = "Status: Connected & Listening"
+            lblStatus.ForeColor = Color.Green
 
-
-        'MessageBox.Show(client.ToString)
-
-        'Try
-        'Dim response As HttpResponseMessage = Await client.GetAsync(fullUri)
-        'If response.IsSuccessStatusCode Then
-        'MessageBox.Show("yippee")
-        'Else
-        'MessageBox.Show("ruh roh")
-        'End If
-        'Catch ex As Exception
-        'MessageBox.Show("ruh roh raggy")
-        'End Try
-
+        Catch ex As Exception
+            lblStatus.Text = "Status: Connection Failed"
+            lblStatus.ForeColor = Color.Red
+            MessageBox.Show($"Failed to connect to the intercom: {ex.Message}")
+        End Try
     End Sub
 
     Private Function AcceptAllCertificates(sender As Object,
@@ -71,87 +71,131 @@ Public Class Form1
         Return True
     End Function
 
-    Private Async Sub btnConnect_Click(sender As Object, e As EventArgs) Handles btnConnect.Click
-
-        cts = New CancellationTokenSource()
-        webSocket = New ClientWebSocket()
-
-        webSocket.Options.RemoteCertificateValidationCallback = AddressOf AcceptAllCertificates
-
-        Dim username As String = "willTestCam"
-        Dim password As String = "root"
-        webSocket.Options.Credentials = New System.Net.NetworkCredential(username, password)
-
-        MessageBox.Show(client.ToString)
-        Dim deviceIp As String = "192.168.0.208"
-        Dim serverUri As New Uri($"wss://{deviceIp}/vapix/intercomws")
-
-
-
+    Public Async Function StartCallAsync() As Task
         Try
-            Await webSocket.ConnectAsync(serverUri, cts.Token)
-            lblStatus.Text = "Connected"
+            ' 1. Set up the SIP Transport (listens for SIP traffic)
+            sipTransport = New SIPTransport()
 
-            Await ListenForMessagesAsync(webSocket, cts.Token)
+            ' 2. Set up the Windows Audio Endpoint (Mic and Speakers)
+            windowsAudio = New WindowsAudioEndPoint(New SIPSorcery.Media.AudioEncoder())
 
-        Catch webEx As System.Net.WebException
-            'Console.WriteLine("Status: " & webEx.Status.ToString())
+            ' 3. Create the VoIP Media Session
+            Dim voipMediaSession As New VoIPMediaSession(windowsAudio.ToMediaEndPoints())
 
-            MessageBox.Show("Status: " & webEx.Status.ToString())
+            ' 4. Create the SIP User Agent (Your Softphone)
+            userAgent = New SIPUserAgent(sipTransport, Nothing)
 
-            If webEx.InnerException IsNot Nothing Then
-                '   Console.WriteLine("Root Cause: " & webEx.InnerException.Message)
+            ' --- Event Handlers to track the call state ---
+            AddHandler userAgent.ClientCallRinging, Sub(ua, res)
+                                                        Console.WriteLine("Intercom is ringing...")
+                                                    End Sub
 
-                MessageBox.Show("Root Cause: " & webEx.InnerException.Message)
+            AddHandler userAgent.ClientCallAnswered, Sub(ua, res)
+                                                         Console.WriteLine("Call answered! Audio streaming started.")
+                                                     End Sub
 
-                If TypeOf webEx.InnerException Is System.Net.Sockets.SocketException Then
-                    Dim socketEx As System.Net.Sockets.SocketException = CType(webEx.InnerException, System.Net.Sockets.SocketException)
+            AddHandler userAgent.ClientCallFailed, Sub(ua, err, res)
+                                                       Console.WriteLine($"Call failed: {err}")
+                                                   End Sub
+            ' ----------------------------------------------
 
-                    '       Console.WriteLine("Socket Error Code: " & socketEx.SocketErrorCode.ToString())
-                    '      Console.WriteLine("Native Error Code: " & socketEx.NativeErrorCode)
+            ' 5. The Intercom's SIP Address
+            ' Format: sip:username@ip_address
+            Dim intercomSipUri As String = "sip:192.168.0.208:5060"
 
-                    MessageBox.Show("Socket Error Code: " & socketEx.SocketErrorCode.ToString())
-                    MessageBox.Show("Native Error Code: " & socketEx.NativeErrorCode)
+            ' 6. Start the Call!
+            ' We pass the SIP URI and the Media Session to handle the audio
+            Dim callTask = userAgent.Call(intercomSipUri, Nothing, Nothing, voipMediaSession)
 
-                End If
+            Await callTask
 
-            End If
         Catch ex As Exception
-
-            ' Console.WriteLine("General Error: " & ex.Message)
-            If Not lblStatus.Text.Contains("Disconnected") Then
-                MessageBox.Show("General Error: " & ex.Message)
-            End If
-
+            MessageBox.Show($"SIP Error: {ex.Message}")
         End Try
+    End Function
 
+    Public Sub HangUp()
+        If userAgent IsNot Nothing Then
+            userAgent.Hangup()
+        End If
+        If sipTransport IsNot Nothing Then
+            sipTransport.Shutdown()
+        End If
     End Sub
 
+    Public Sub StartListening()
+        Try
+            ' 1. Set up the SIP Transport
+            sipTransport = New SIPTransport()
 
-    Private Async Function ListenForMessagesAsync(socket As ClientWebSocket, ct As CancellationToken) As Task
+            ' --- THE MISSING PIECE ---
+            ' Explicitly tell SIPSorcery to open and listen on UDP Port 5060
+            Dim sipChannel As New SIPUDPChannel(New Net.IPEndPoint(Net.IPAddress.Any, 5060))
+            sipTransport.AddSIPChannel(sipChannel)
+            ' -------------------------
 
-        Dim buffer As Byte() = New Byte(1023) {}
+            ' 2. Create the SIP User Agent (Your Softphone)
+            userAgent = New SIPUserAgent(sipTransport, Nothing)
 
-        While socket.State = WebSocketState.Open
+            ' 3. Tell the agent what to do when an incoming call arrives
+            AddHandler userAgent.OnIncomingCall, AddressOf Intercom_Ringing
 
-            Dim result = Await socket.ReceiveAsync(New ArraySegment(Of Byte)(buffer), ct)
+        Catch ex As Exception
+            MessageBox.Show($"Failed to start listening: {ex.Message}")
+        End Try
+    End Sub
 
-            If result.MessageType = WebSocketMessageType.Close Then
+    ' Update the Ringing event to HOLD the call instead of answering it
+    Private Sub Intercom_Ringing(ua As SIPUserAgent, req As SIPRequest)
+        Try
+            ' 1. Accept the incoming call (This tells the intercom to play the ringing sound outside)
+            activeCallAgent = ua
+            activeServerAgent = ua.AcceptCall(req)
 
-                Await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None)
-                Exit While
-                'kejrgndrfkjngrkjgn
+            ' 2. Visually show that the call is incoming and unlock the Answer button
+            Me.Invoke(Sub()
+                          lblStatus.Text = "Status: INCOMING CALL! (Ringing...)"
+                          lblStatus.ForeColor = Color.Orange
+                          btnAnswer.Enabled = True
+                      End Sub)
+        Catch ex As Exception
+            Me.Invoke(Sub()
+                          lblStatus.Text = $"Status: Ring Error - {ex.Message}"
+                      End Sub)
+        End Try
+    End Sub
+
+    ' Create the click event for your new Answer button
+    Private Async Sub btnAnswer_Click(sender As Object, e As EventArgs) Handles btnAnswer.Click
+        ' Safety check
+        If activeCallAgent Is Nothing OrElse activeServerAgent Is Nothing Then Return
+
+        Try
+            ' Lock the button so it can't be double-clicked
+            btnAnswer.Enabled = False
+            lblStatus.Text = "Status: Connecting Audio..."
+
+            ' 1. Set up the Audio endpoints (Mic and Speakers)
+            windowsAudio = New WindowsAudioEndPoint(New SIPSorcery.Media.AudioEncoder())
+            Dim voipMediaSession As New VoIPMediaSession(windowsAudio.ToMediaEndPoints())
+
+            ' 2. Formally Answer the call and open the 2-way audio!
+            Dim answered As Boolean = Await activeCallAgent.Answer(activeServerAgent, voipMediaSession)
+
+            If answered Then
+                lblStatus.Text = "Status: Call Active! (Audio Live)"
+                lblStatus.ForeColor = Color.Green
+            Else
+                lblStatus.Text = "Status: Failed to answer call."
+                lblStatus.ForeColor = Color.Red
             End If
 
-            Dim messageString As String = Encoding.UTF8.GetString(buffer, 0, result.Count)
-
-            Me.Invoke(Sub()
-                          txtLog.AppendText(messageString & vbCrLf)
-                      End Sub)
-
-        End While
-
-    End Function
+        Catch ex As Exception
+            MessageBox.Show($"Error answering call: {ex.Message}")
+            lblStatus.Text = "Status: Error Answering"
+            lblStatus.ForeColor = Color.Red
+        End Try
+    End Sub
 
     Private Async Sub btnDisconnect_Click(sender As Object, e As EventArgs) Handles btnDisconnect.Click
 
@@ -171,6 +215,5 @@ Public Class Form1
         End If
 
     End Sub
-
 
 End Class

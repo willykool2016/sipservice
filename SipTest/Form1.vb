@@ -80,40 +80,6 @@ Public Class Form1
         Return True
     End Function
 
-    'Creates Two-way Connection between Intercom and PC
-    Public Async Function StartCallAsync() As Task
-        Try
-            ' 1. Set up the SIP Transport (listens for SIP traffic)
-            sipTransport = New SIPTransport()
-            ' 2. Set up the Windows Audio Endpoint (Mic and Speakers)
-            windowsAudio = New WindowsAudioEndPoint(New SIPSorcery.Media.AudioEncoder())
-            ' 3. Create the VoIP Media Session
-            Dim voipMediaSession As New VoIPMediaSession(windowsAudio.ToMediaEndPoints())
-            ' 4. Create the SIP User Agent (Your Softphone)
-            userAgent = New SIPUserAgent(sipTransport, Nothing)
-            ' --- Event Handlers to track the call state ---
-            AddHandler userAgent.ClientCallRinging, Sub(ua, res)
-                                                        Console.WriteLine("Intercom is ringing...")
-                                                    End Sub
-            AddHandler userAgent.ClientCallAnswered, Sub(ua, res)
-                                                         Console.WriteLine("Call answered! Audio streaming started.")
-                                                     End Sub
-            AddHandler userAgent.ClientCallFailed, Sub(ua, err, res)
-                                                       Console.WriteLine($"Call failed: {err}")
-                                                   End Sub
-            ' ----------------------------------------------
-            ' 5. The Intercom's SIP Address
-            ' Format: sip:username@ip_address
-            Dim intercomSipUri As String = "sip:192.168.0.208:5060"
-            ' 6. Start the Call!
-            ' We pass the SIP URI and the Media Session to handle the audio
-            Dim callTask = userAgent.Call(intercomSipUri, Nothing, Nothing, voipMediaSession)
-            Await callTask
-        Catch ex As Exception
-            MessageBox.Show($"SIP Error: {ex.Message}")
-        End Try
-    End Function
-
     'Where the code to make the hang up button and form closing hangup occur
     Public Sub HangUp()
         Try
@@ -121,11 +87,6 @@ Public Class Form1
             If activeCallAgent IsNot Nothing Then
                 activeCallAgent.Hangup()
             End If
-
-            ' --- NEW LINE: Turn off the Intercom Icons ---
-            ' Since HangUp is a synchronous Sub, we use _ = to fire-and-forget the async task
-            Call SetIntercomFeedback("led3", "continuous", "off")
-            ' ---------------------------------------------
 
             ' 2. Clean up the audio devices
             If windowsAudio IsNot Nothing Then
@@ -151,37 +112,6 @@ Public Class Form1
         HangUp()
     End Sub
 
-    ' Helper Method to directly control the LED icons on the Intercom
-    Private Async Function SetIntercomFeedback(ledName As String, runStyle As String, color As String) As Task
-        If webSocket Is Nothing OrElse webSocket.State <> WebSocketState.Open Then Return
-
-        Try
-            ' We use ledFeedbacks to take manual control of the lights
-            Dim jsonPayload As String = $"{{
-              ""apiVersion"": ""1.0"",
-              ""method"": ""SetUiFeedback"",
-              ""params"": {{
-                ""ledFeedbacks"": [
-                  {{
-                    ""led"": ""{ledName}"",
-                    ""runStyle"": ""{runStyle}"",
-                    ""valueOn"": ""{color}"",
-                    ""valueOff"": ""off""
-                  }}
-                ]
-              }},
-              ""id"": ""clientSetUiFeedback""
-            }}"
-
-            Dim buffer As Byte() = Encoding.UTF8.GetBytes(jsonPayload)
-            Dim segment As New ArraySegment(Of Byte)(buffer)
-
-            Await webSocket.SendAsync(segment, WebSocketMessageType.Text, True, CancellationToken.None)
-
-        Catch ex As Exception
-            Console.WriteLine($"Failed to set UI feedback: {ex.Message}")
-        End Try
-    End Function
 #End Region
 
 #Region "Prepare for Incoming Calls"
@@ -280,6 +210,24 @@ Public Class Form1
             ' Since it is a Peer-to-Peer call, just the IP address is usually enough
             Dim intercomSipUri As String = "sip:192.168.0.208"
 
+            ' Trace outgoing SIP requests
+            AddHandler sipTransport.SIPRequestOutTraceEvent,
+    Sub(localEP, remoteEP, request)
+
+        Debug.WriteLine("----------------------------------")
+        Debug.WriteLine(request.Method.ToString())
+        Debug.WriteLine("----------------------------------")
+        Debug.WriteLine(request.ToString())
+
+    End Sub
+
+            ' Trace incoming SIP responses
+            AddHandler sipTransport.SIPResponseInTraceEvent,
+                Sub(localEP, remoteEP, response)
+                    Debug.WriteLine("===== INCOMING SIP RESPONSE =====")
+                    Debug.WriteLine(response.ToString())
+                End Sub
+
             ' 3. Place the call! 
             ' We pass Nothing for username/password because P2P usually doesn't require them.
             Dim answered As Boolean = Await userAgent.Call(intercomSipUri, Nothing, Nothing, voipMediaSession)
@@ -291,9 +239,6 @@ Public Class Form1
                 ' Keep track of the active call so we can hang it up later
                 activeCallAgent = userAgent
 
-                ' --- NEW LINE: Turn on the Blue Intercom Icon! ---
-                Call SetIntercomFeedback("led3", "continuous", "on")
-                ' -------------------------------------------------
             Else
                 lblStatus.Text = "Status: Call Rejected or Timeout"
                 lblStatus.ForeColor = Color.Red

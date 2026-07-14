@@ -56,6 +56,22 @@ Public Class Form1
         End Try
     End Sub
 
+    'Makes sure that if the user closes the app, the ports are freed
+    Private Sub Form1_FormClosing(sender As Object, e As FormClosingEventArgs) Handles Me.FormClosing
+        ' First hang up any active calls
+        HangUp()
+
+        ' NOW it is safe to completely shut down the network listener
+        If sipTransport IsNot Nothing Then
+            sipTransport.Shutdown()
+        End If
+
+        ' Force all background threads to die immediately so Port 5060 is released!
+        Environment.Exit(0)
+    End Sub
+
+#Region "Helper Methods"
+    'Helper Method to accept certificates before connecting
     Private Function AcceptAllCertificates(sender As Object,
                                        certificate As System.Security.Cryptography.X509Certificates.X509Certificate,
                                        chain As System.Security.Cryptography.X509Certificates.X509Chain,
@@ -64,6 +80,7 @@ Public Class Form1
         Return True
     End Function
 
+    'Creates Two-way Connection between Intercom and PC
     Public Async Function StartCallAsync() As Task
         Try
             ' 1. Set up the SIP Transport (listens for SIP traffic)
@@ -98,15 +115,41 @@ Public Class Form1
     End Function
 
     'Where the code to make the hang up button and form closing hangup occur
+    'Where the code to make the hang up button occur
     Public Sub HangUp()
-        If userAgent IsNot Nothing Then
-            userAgent.Hangup()
-        End If
-        If sipTransport IsNot Nothing Then
-            sipTransport.Shutdown()
-        End If
+        Try
+            ' 1. Hang up only the active call, do NOT shut down the sipTransport!
+            If activeCallAgent IsNot Nothing Then
+                activeCallAgent.Hangup()
+            End If
+
+            ' 2. Clean up the audio devices
+            If windowsAudio IsNot Nothing Then
+                windowsAudio.CloseAudio()
+            End If
+
+            ' 3. Reset our variables for the next call
+            activeCallAgent = Nothing
+            activeServerAgent = Nothing
+
+            ' 4. Reset the UI
+            lblStatus.Text = "Status: Connected & Listening"
+            lblStatus.ForeColor = Color.Green
+            btnAnswer.Enabled = False
+
+        Catch ex As Exception
+            MessageBox.Show($"Error hanging up: {ex.Message}")
+        End Try
     End Sub
 
+    'When pressed, should hang up the call with the intercom
+    Private Sub btnHangUp_Click(sender As Object, e As EventArgs) Handles btnHangUp.Click
+        HangUp()
+    End Sub
+#End Region
+
+#Region "Prepare for Incoming Calls"
+    'Automatically listens for incoming traffic
     Public Sub StartListening()
         Try
             ' 1. Set up the SIP Transport
@@ -171,20 +214,12 @@ Public Class Form1
             lblStatus.ForeColor = Color.Red
         End Try
     End Sub
+#End Region
 
-    'When pressed, should hang up the call with the intercom
-    Private Sub btnHangUp_Click(sender As Object, e As EventArgs) Handles btnHangUp.Click
-        HangUp()
-    End Sub
-
+#Region "Send Call to Intercom"
     'When pressed, should send a call out to the intercom
-
-    'Makes sure that if the user closes the app, the call is hung up if they have yet to
-    Private Sub Form1_FormClosing(sender As Object, e As FormClosingEventArgs) Handles Me.FormClosing
-        HangUp()
-    End Sub
-
     Private Sub btnMakeCall_Click_1(sender As Object, e As EventArgs) Handles btnMakeCall.Click
         MessageBox.Show("Hello? Hello hello!")
     End Sub
+#End Region
 End Class

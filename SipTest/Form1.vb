@@ -17,6 +17,7 @@ Imports SIPSorcery.SIP.App
 Imports SIPSorceryMedia.Windows
 
 Public Class Form1
+    Dim hello As String
     Dim client As New HttpClient()
     Private webSocket As ClientWebSocket
     Private cts As CancellationTokenSource
@@ -258,6 +259,7 @@ Public Class Form1
                 MessageBox.Show($"HTTP Request Error: {ex.Message}")
                 ' Reset flag if the HTTP request failed so we don't accidentally auto-answer a real visitor
                 isAppInitiatingCall = False
+
             End Try
         End Using
     End Function

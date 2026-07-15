@@ -2,6 +2,7 @@
 Imports System.IO
 Imports System.Net
 Imports System.Net.Http
+Imports System.Net.Http.Headers
 Imports System.Net.Security
 Imports System.Net.WebSockets
 Imports System.Runtime.CompilerServices
@@ -14,10 +15,6 @@ Imports SIPSorcery.Media
 Imports SIPSorcery.SIP
 Imports SIPSorcery.SIP.App
 Imports SIPSorceryMedia.Windows
-'Imports System.Text
-'Imports System.Net.Http
-'Imports Net
-'Imports System.Net.Security.Cryptography
 
 Public Class Form1
     Dim client As New HttpClient()
@@ -31,22 +28,26 @@ Public Class Form1
     Private activeCallAgent As SIPUserAgent
     Private activeServerAgent As SIPServerUserAgent
 
+    Private isAppInitiatingCall As Boolean = False
+
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         ' 1. Start the SIP Server to listen for incoming calls right away
         StartListening()
         ' 2. Connect the WebSocket to send API commands
         Try
-            lblStatus.Text = "Status: Connecting..."
+            lblStatus.Text = "Status: Connecting to API..."
             webSocket = New ClientWebSocket()
             cts = New CancellationTokenSource()
             ' Apply certificate bypass and credentials
             webSocket.Options.RemoteCertificateValidationCallback = AddressOf AcceptAllCertificates
-            ' Make sure to put your actual device password here!
             webSocket.Options.Credentials = New System.Net.NetworkCredential("willTestCam", "root")
+
             Dim deviceIp As String = "192.168.0.208"
             Dim serverUri As New Uri($"wss://{deviceIp}/vapix/intercomws")
+
             ' Connect!
             Await webSocket.ConnectAsync(serverUri, cts.Token)
+
             lblStatus.Text = "Status: Connected & Listening"
             lblStatus.ForeColor = Color.Green
         Catch ex As Exception
@@ -101,6 +102,7 @@ Public Class Form1
             lblStatus.Text = "Status: Connected & Listening"
             lblStatus.ForeColor = Color.Green
             btnAnswer.Enabled = False
+            btnCallIntercom.Enabled = True
 
         Catch ex As Exception
             MessageBox.Show($"Error hanging up: {ex.Message}")
@@ -143,16 +145,36 @@ Public Class Form1
     ' Update the Ringing event to HOLD the call instead of answering it
     Private Sub Intercom_Ringing(ua As SIPUserAgent, req As SIPRequest)
         Try
-            ' 1. Accept the incoming call (This tells the intercom to play the ringing sound outside)
             activeCallAgent = ua
             activeServerAgent = ua.AcceptCall(req)
 
-            ' 2. Visually show that the call is incoming and unlock the Answer button
-            Me.Invoke(Sub()
-                          lblStatus.Text = "Status: INCOMING CALL! (Ringing...)"
-                          lblStatus.ForeColor = Color.Orange
-                          btnAnswer.Enabled = True
-                      End Sub)
+            If isAppInitiatingCall Then
+                ' We triggered this via HTTP, so auto-answer the audio immediately!
+                isAppInitiatingCall = False
+
+                Me.Invoke(Async Sub()
+                              lblStatus.Text = "Status: Connecting Audio..."
+                              windowsAudio = New WindowsAudioEndPoint(New AudioEncoder)
+                              Dim voipMediaSession As New VoIPMediaSession(windowsAudio.ToMediaEndPoints)
+
+                              Dim answered = Await activeCallAgent.Answer(activeServerAgent, voipMediaSession)
+                              If answered Then
+                                  lblStatus.Text = "Status: Call Active! (Audio Live)"
+                                  lblStatus.ForeColor = Color.Green
+                              Else
+                                  lblStatus.Text = "Status: Failed to auto-answer."
+                                  lblStatus.ForeColor = Color.Red
+                                  btnCallIntercom.Enabled = True
+                              End If
+                          End Sub)
+            Else
+                ' Normal incoming call (someone physically pushed the button outside)
+                Me.Invoke(Sub()
+                              lblStatus.Text = "Status: INCOMING CALL! (Ringing...)"
+                              lblStatus.ForeColor = Color.Orange
+                              btnAnswer.Enabled = True
+                          End Sub)
+            End If
         Catch ex As Exception
             Me.Invoke(Sub()
                           lblStatus.Text = $"Status: Ring Error - {ex.Message}"
@@ -191,66 +213,53 @@ Public Class Form1
 #Region "Send Call to Intercom"
     'When pressed, should send a call out to the intercom
     Private Async Sub btnCallIntercom_Click(sender As Object, e As EventArgs) Handles btnCallIntercom.Click
-        ' Safety check: ensure the SIP agent is running
-        If userAgent Is Nothing Then
-            MessageBox.Show("The SIP engine hasn't started yet!")
-            Return
-        End If
-
         Try
             btnCallIntercom.Enabled = False
-            lblStatus.Text = "Status: Calling Intercom..."
+            lblStatus.Text = "Status: Waking up Intercom..."
             lblStatus.ForeColor = Color.Orange
 
-            ' 1. Set up the Audio endpoints (Mic and Speakers)
-            windowsAudio = New WindowsAudioEndPoint(New SIPSorcery.Media.AudioEncoder())
-            Dim voipMediaSession As New VoIPMediaSession(windowsAudio.ToMediaEndPoints())
+            ' Set the flag so the incoming call event knows to auto-answer
+            isAppInitiatingCall = True
 
-            ' 2. The Intercom's SIP Address
-            ' Since it is a Peer-to-Peer call, just the IP address is usually enough
-            Dim intercomSipUri As String = "sip:192.168.0.208"
-
-            ' Trace outgoing SIP requests
-            AddHandler sipTransport.SIPRequestOutTraceEvent,
-    Sub(localEP, remoteEP, request)
-
-        Debug.WriteLine("----------------------------------")
-        Debug.WriteLine(request.Method.ToString())
-        Debug.WriteLine("----------------------------------")
-        Debug.WriteLine(request.ToString())
-
-    End Sub
-
-            ' Trace incoming SIP responses
-            AddHandler sipTransport.SIPResponseInTraceEvent,
-                Sub(localEP, remoteEP, response)
-                    Debug.WriteLine("===== INCOMING SIP RESPONSE =====")
-                    Debug.WriteLine(response.ToString())
-                End Sub
-
-            ' 3. Place the call! 
-            ' We pass Nothing for username/password because P2P usually doesn't require them.
-            Dim answered As Boolean = Await userAgent.Call(intercomSipUri, Nothing, Nothing, voipMediaSession)
-
-            If answered Then
-                lblStatus.Text = "Status: Call Active! (Outbound)"
-                lblStatus.ForeColor = Color.Green
-
-                ' Keep track of the active call so we can hang it up later
-                activeCallAgent = userAgent
-
-            Else
-                lblStatus.Text = "Status: Call Rejected or Timeout"
-                lblStatus.ForeColor = Color.Red
-            End If
-
+            ' Fire the HTTP pulse to trigger the intercom's action rule
+            Await ActivateVirtualInput()
         Catch ex As Exception
-            MessageBox.Show($"Error making call: {ex.Message}")
-            lblStatus.Text = "Status: Error Calling"
-            lblStatus.ForeColor = Color.Red
-        Finally
+            MessageBox.Show($"Error triggering call: {ex.Message}")
             btnCallIntercom.Enabled = True
+            isAppInitiatingCall = False
         End Try
     End Sub
+
+    'Activate Led when call made by computer
+    Private Async Function ActivateVirtualInput() As Task
+        Dim deactivateUrl As String = "http://192.168.0.208/axis-cgi/virtualinput/deactivate.cgi?schemaversion=1&port=1"
+        Dim activateUrl As String = "http://192.168.0.208/axis-cgi/virtualinput/activate.cgi?schemaversion=1&port=1"
+
+        Dim handler As New HttpClientHandler()
+        handler.Credentials = New NetworkCredential("willTestCam", "root")
+
+        Using client As New HttpClient(handler)
+            Try
+                ' 1. Force the switch OFF just in case it got stuck ON previously
+                Await client.GetAsync(deactivateUrl)
+
+                ' Slight delay to let the Axis state machine process the transition
+                Await Task.Delay(200)
+
+                ' 2. Turn the switch ON (This triggers the Axis Action Rule to call us)
+                Dim response = Await client.GetAsync(activateUrl)
+                Dim body = Await response.Content.ReadAsStringAsync()
+
+                If Not response.IsSuccessStatusCode Then
+                    MessageBox.Show($"Failed to trigger intercom: {response.StatusCode} - {body}")
+                End If
+
+            Catch ex As Exception
+                MessageBox.Show($"HTTP Request Error: {ex.Message}")
+                ' Reset flag if the HTTP request failed so we don't accidentally auto-answer a real visitor
+                isAppInitiatingCall = False
+            End Try
+        End Using
+    End Function
 #End Region
 End Class

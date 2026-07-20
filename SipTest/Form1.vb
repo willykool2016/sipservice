@@ -1,4 +1,5 @@
-﻿Imports System.Globalization
+﻿Imports System.Drawing.Text
+Imports System.Globalization
 Imports System.IO
 Imports System.Net
 Imports System.Net.Http
@@ -15,6 +16,12 @@ Imports SIPSorcery.Media
 Imports SIPSorcery.SIP
 Imports SIPSorcery.SIP.App
 Imports SIPSorceryMedia.Windows
+
+Imports System.Drawing
+Imports System.Windows.Forms
+Imports Windows.Globalization.NumberFormatting
+
+
 
 Public Class Form1
     Dim client As New HttpClient()
@@ -62,6 +69,11 @@ Public Class Form1
         ' First hang up any active calls
         HangUp()
 
+        If Application.OpenForms.OfType(Of CallNotify)().Any() Then
+            CallNotify.Close()
+        End If
+
+
         ' NOW it is safe to completely shut down the network listener
         If sipTransport IsNot Nothing Then
             sipTransport.Shutdown()
@@ -83,6 +95,12 @@ Public Class Form1
 
     'Where the code to make the hang up button and form closing hangup occur
     Public Sub HangUp()
+        '-------------------------------
+        If Application.OpenForms.OfType(Of CallNotify)().Any() Then
+            Dim openForm As CallNotify = Application.OpenForms.OfType(Of CallNotify)().First()
+            openForm.Close()
+        End If
+        '---------------------------------
         Try
             ' 1. Hang up only the active call, do NOT shut down the sipTransport!
             If activeCallAgent IsNot Nothing Then
@@ -262,4 +280,39 @@ Public Class Form1
         End Using
     End Function
 #End Region
+
+    'Informs the person if they are not muted/still on call when window resized
+
+
+
+
+    Private Sub Form1_Resize(sender As Object, e As EventArgs) Handles Me.Resize
+
+        'To let person know they are still on call
+
+        If Me.WindowState = FormWindowState.Minimized Then
+            'MessageBox.Show("The form has been minimized!")
+
+            If lblStatus.Text.Contains("Status: Call Active! (Outbound)") Or lblStatus.Text.Contains("Status: Call Active! (Audio Live)") Then
+                Dim userChoice As DialogResult = MessageBox.Show("You are still on call." & Environment.NewLine & "Would you like to hang up?", "Call Notification", MessageBoxButtons.YesNo)
+
+                If userChoice = DialogResult.Yes Then
+                    HangUp()
+                    MessageBox.Show("No longer on call.", "Call Ended", MessageBoxButtons.OK)
+                Else
+                    Dim overlay As New CallNotify()
+
+                    overlay.StartPosition = FormStartPosition.Manual
+                    overlay.Location = New Point(25, 25)
+                    overlay.Size = New Size(50, 150)
+
+                    overlay.Show()
+                End If
+
+            End If
+
+        End If
+
+    End Sub
+
 End Class

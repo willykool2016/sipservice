@@ -39,19 +39,6 @@ Public Class Form1
     Private activeServerAgent As SIPServerUserAgent
 
 
-    'yolo ---------------------------------
-
-    'Dim overlay As New CallNotify()
-
-    'overlay.StartPosition = FormStartPosition.Manual
-    'overlay.Location = New Point(100, 100)
-    'overlay.Size = New Size(400, 400)
-
-    'overlay.Show()
-
-
-    'yolo ---------------------------------
-
 
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         ' 1. Start the SIP Server to listen for incoming calls right away
